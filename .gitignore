@@ -13,6 +13,9 @@ __pycache__/
 # Ignore database
 archive.db
 
+# Ignore json
+app_data.json
+
 # Ignore system-generated files
 .DS_Store
 Thumbs.db

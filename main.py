@@ -44,7 +44,23 @@ def update_ytdlp() -> None:
             print(f"[Error] Failed to update yt-dlp: {e}")
 
 
-def download_audio(youtube_url, download_folder, use_video_id, thumbnail) -> None:
+def fetch_playlist_entries(url: str) -> list | None:
+    ydl_opts = {
+        'extract_flat': 'in_playlist', # Only get metadata, don't download
+        'quiet': True,
+        'no_warnings': True,
+        'ignoreerrors': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get('entries', [])
+    except Exception as e:
+        print(f"[Error] Could not fetch playlist info: {e}")
+        return None
+
+
+def download_audio(youtube_url, download_folder, use_video_id, thumbnail, playlist_url=None, archive=None) -> None:
     # Create download directory
     download_path = Path(download_folder)
     try:
@@ -76,26 +92,37 @@ def download_audio(youtube_url, download_folder, use_video_id, thumbnail) -> Non
 
     # Check for local FFmpeg
     ffmpeg_dir = BASE_DIR / "FFmpeg" / "bin"
-    if ffmpeg_dir.exists():
+    ffmpeg_binary = ffmpeg_dir / "ffmpeg.exe"
+    if ffmpeg_binary.exists():
         ydl_opts['ffmpeg_location'] = str(ffmpeg_dir)
     else:
-        thread_safe_print("[Warning] Local FFmpeg/bin folder not found. Relying on system PATH.")
+        thread_safe_print("[Warning] Local FFmpeg binary not found. Relying on system PATH.")
 
     # run Download
     try:
         thread_safe_print(f"[Queueing] {youtube_url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            error_code = ydl.download([youtube_url])
+            # Use extract_info with download=True to get metadata back for the DB
+            info = ydl.extract_info(youtube_url, download=True)
             
-            if error_code == 0:
-                thread_safe_print(f"[Finished] {youtube_url}")
-            else:
-                # Force exception
-                raise Exception("yt-dlp returned an error code.")
+            # Save to Database if part of a tracked playlist
+            if archive and playlist_url:
+                # Handle cases where URL might be a list (though usually it's single here)
+                entries = info['entries'] if 'entries' in info else [info]
+                
+                for entry in entries:
+                    vid = entry.get('id')
+                    final_path = ydl.prepare_filename(entry)
+                    archive.add(vid, playlist_url, final_path)
+
+            thread_safe_print(f"[Finished] {youtube_url}")
     
     except Exception as e:
-        thread_safe_print(f"[Error] Download failed. Triggering update")
-        update_ytdlp()
+        if "returned non-zero exit status" in str(e):
+             thread_safe_print(f"[Error] Download failed for {youtube_url}")
+        else:
+             thread_safe_print(f"[Error] Download failed. Triggering update")
+             update_ytdlp()
 
 
 
@@ -179,6 +206,7 @@ if __name__ == "__main__":
                 "set directory:\t\tChange download folder\n"
                 "thumbnail\t\tToggle adding thumbnail to file\n"
                 "reset:\t\t\tReset to default settings\n"
+                
                 "add to list:\t\tAdd playlist to stored list\n"
                 "remove from list:\tRemove playlist from stored list\n"
                 "update\t\t\tUpdate stored playlists\n"
@@ -232,7 +260,14 @@ if __name__ == "__main__":
                 print("[Error] Not a valid URL.")
 
         elif cmd == "remove from list" or cmd == "remove_from_list" or cmd == "remove":
-            playlist_name = input("Playlist URL or name to remove: ").strip()
+            playlist_name = input("Playlist URL or name to remove or type 'list' to get a list of saved playlists: ").strip()
+            if playlist_name == "list":
+                print("Saved Playlists:")
+                for idx, item in enumerate(stored_data['playlists'], start=1):
+                    print(f"{idx}. {item['name']}")
+                playlist_name = input("Playlist name or number to remove ").strip()
+                if playlist_name.isdigit():
+                    playlist_name = stored_data['playlists'][int(playlist_name) - 1]['name']
             before_count = len(stored_data['playlists'])
             stored_data['playlists'] = [item for item in stored_data['playlists'] if item['url'] != playlist_name and item['name'] != playlist_name]
             after_count = len(stored_data['playlists'])
@@ -243,9 +278,52 @@ if __name__ == "__main__":
                 print("[Info] Playlist URL or name not found in list")
 
         elif cmd == "update":
-            with ThreadPoolExecutor(max_workers = 3) as executor:
-                # Todo
-                break
+            download_tasks = []
+            print("[Update] Syncing playlists...")
+            
+            # Identify Deletions and New Downloads
+            for item in stored_data['playlists']:
+                url = item['url']
+                path = item['path']
+                
+                # Get Live IDs from YouTube
+                live_entries = fetch_playlist_entries(url)
+                if live_entries is None: continue
+                live_ids = {entry['id'] for entry in live_entries if entry.get('id')}
+
+                # Get Local IDs from DB
+                local_map = archive.get_map(url)
+                local_ids = set(local_map.keys())
+
+                # Calculate Diff
+                to_delete = local_ids - live_ids
+                to_download = live_ids - local_ids
+
+                # Process Deletions Immediately
+                for vid in to_delete:
+                    file_path = local_map[vid]
+                    try:
+                        p = Path(file_path)
+                        if p.exists():
+                            p.unlink() # Delete actual file
+                        archive.remove(vid, url) # Update DB
+                        print(f"[Deleted] {vid} from {item['name']}")
+                    except Exception as e:
+                        print(f"[Error] Deleting {vid}: {e}")
+
+                # Queue Downloads
+                for vid in to_download:
+                    video_url = f"https://www.youtube.com/watch?v={vid}"
+                    download_tasks.append((video_url, path, settings['id'], settings['thumb'], url))
+
+            if download_tasks:
+                print(f"[Update] Starting {len(download_tasks)} new downloads")
+                with ThreadPoolExecutor(max_workers = 3) as executor:
+                    for task in download_tasks:
+                        executor.submit(download_audio, *task, archive=archive)
+            else:
+                print("[Update] No new videos found.")
+                
             print("[Update] All updates finished.")
         
         else:
