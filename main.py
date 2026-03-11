@@ -8,10 +8,12 @@ import yt_dlp
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from archive import DownloadArchive
 
 
 BASE_DIR = Path(__file__).parent.resolve()
 DATA_FILE = BASE_DIR / "app_data.json"
+DB_FILE = BASE_DIR / "archive.db"
 
 
 print_lock = threading.Lock()
@@ -112,6 +114,7 @@ def get_metadata(url) -> str | None:
         return None
 
 
+
 def load_stored_data() -> dict:
     if not DATA_FILE.exists():
         return {"playlists": []}
@@ -147,6 +150,9 @@ def save_stored_data(data) -> None:
 
 
 if __name__ == "__main__":
+    # Initialize SQLite Database
+    archive = DownloadArchive(DB_FILE)
+
     # Settings
     stored_data = load_stored_data()
 
