@@ -239,10 +239,10 @@ if __name__ == "__main__":
         elif user_input.startswith(("http", "www", "youtu")) and user_input.__contains__("playlist?list"):
             name = get_metadata(user_input)
             name = sanitize_filename(name)
-            download_audio(user_input, settings['path'] / name, settings['id'], settings['thumb'])
+            download_audio(user_input, settings['path'] / 'Download' / name, settings['id'], settings['thumb'])
 
         elif user_input.startswith(("http", "www", "youtu")):
-            download_audio(user_input, settings['path'] / 'Download', settings['id'], settings['thumb'])
+            download_audio(user_input, settings['path'] / 'Download' / 'loose_songs', settings['id'], settings['thumb'])
 
         elif cmd == "add to list" or cmd == "add_to_list" or cmd == "add":
             playlist_url = input("Playlist URL: ").strip()
@@ -250,7 +250,7 @@ if __name__ == "__main__":
                 if not any(item['url'] == playlist_url for item in stored_data['playlists']):
                     name = get_metadata(playlist_url)
                     name = sanitize_filename(name)
-                    new_entry = {"url": playlist_url, "name": name, "path" : settings['path'] / name}
+                    new_entry = {"url": playlist_url, "name": name, "path" : settings['path'] / 'Download' / name}
                     stored_data["playlists"].append(new_entry)
                     save_stored_data(stored_data)
                     print(f"[Info] Successfully saved: {name}")
