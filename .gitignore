@@ -1,0 +1,12 @@
+# Ignore the FFmpeg binary folder
+FFmpeg/
+
+# Ignore the Downloads folder
+Download/
+
+# Ignore the venv folder
+venv/
+
+# Ignore system-generated files
+.DS_Store
+Thumbs.db
