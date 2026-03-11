@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 import sys
+import shutil
 import threading
 import yt_dlp
 
@@ -91,12 +92,11 @@ def download_audio(youtube_url, download_folder, use_video_id, thumbnail, playli
         ydl_opts['postprocessors'].append({'key': 'EmbedThumbnail'})
 
     # Check for local FFmpeg
-    ffmpeg_dir = BASE_DIR / "FFmpeg" / "bin"
-    ffmpeg_binary = ffmpeg_dir / "ffmpeg.exe"
-    if ffmpeg_binary.exists():
-        ydl_opts['ffmpeg_location'] = str(ffmpeg_dir)
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        ydl_opts['ffmpeg_location'] = ffmpeg_path
     else:
-        thread_safe_print("[Warning] Local FFmpeg binary not found. Relying on system PATH.")
+        thread_safe_print("[Warning] FFmpeg not found. Post-processing will fail.")
 
     # run Download
     try:
